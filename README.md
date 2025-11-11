@@ -44,8 +44,8 @@ go build   # 若依赖下载失败，请设置 golang 的国内镜像站，这�
 
 启动：
 
-```powershell
-.\middleware-b.exe -config config.json
+```bash
+.\middleware-b -config config.json
 ```
 
 亦可以配置好 `config.json` 文件后双击启动
@@ -64,8 +64,8 @@ go build   # 若依赖下载失败，请设置 golang 的国内镜像站，这�
 
 启动：
 
-```powershell
-.\middleware-a.exe -config config.json
+```bash
+.\middleware-a -config config.json
 ```
 
 亦可以配置好 `config.json` 文件后双击启动
@@ -86,4 +86,3 @@ go build   # 若依赖下载失败，请设置 golang 的国内镜像站，这�
   - `base64://...`：解码后上传至 `middleware-b`，返回 URL 并改写为 `[CQ:file,file=<url>,name=<name>]`。
   - `file://` 或本地路径：读取本地文件上传至 `middleware-b`，返回 URL 并改写为 `[CQ:file,file=<url>,name=<name>]`。
 - 上游鉴权支持 `Authorization: Bearer` 或 `?access_token=` 两种形式。
-
