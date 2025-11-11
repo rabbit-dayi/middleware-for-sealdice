@@ -14,6 +14,7 @@ import (
     "os"
     "path/filepath"
     "runtime"
+    "regexp"
     "strings"
     "sync"
     "time"
@@ -57,6 +58,71 @@ type sendPrivateMsgParams struct {
 type sendGroupMsgParams struct {
     GroupID int64  `json:"group_id"`
     Message string `json:"message"`
+}
+
+// cqMediaKinds are CQ types we rewrite for cross-machine sending
+var cqMediaKinds = map[string]bool{"image": true, "record": true}
+
+// rewriteCQMediaInText scans CQ codes in text and rewrites media file/path/base64 to remote URL
+func rewriteCQMediaInText(s string, cfg *Config) string {
+    re := regexp.MustCompile(`\[CQ:(image|record)([^\]]*)]`)
+    return re.ReplaceAllStringFunc(s, func(seg string) string {
+        // parse key=value pairs
+        m := re.FindStringSubmatch(seg)
+        if len(m) < 3 { return seg }
+        kind := m[1]
+        argsStr := m[2]
+        args := map[string]string{}
+        for _, kv := range strings.Split(strings.TrimLeft(argsStr, ","), ",") {
+            if kv == "" { continue }
+            parts := strings.SplitN(kv, "=", 2)
+            if len(parts) == 2 {
+                args[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+            }
+        }
+        // prefer url if present and http(s)
+        if u, ok := args["url"]; ok {
+            if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+                return seg
+            }
+        }
+        file := args["file"]
+        if file == "" { return seg }
+        // if already http(s), keep
+        if strings.HasPrefix(file, "http://") || strings.HasPrefix(file, "https://") {
+            return seg
+        }
+        // upload via b, get URL
+        up, name := uploadViaB(file, args["name"], cfg)
+        if up.URL == "" { return seg }
+        args["file"] = escapeCommaMaybe(up.URL)
+        if name != "" { args["name"] = name }
+        // rebuild CQ segment
+        var b strings.Builder
+        b.WriteString("[CQ:")
+        b.WriteString(kind)
+        first := true
+        // preserve common argument order: file first
+        if v, ok := args["file"]; ok {
+            b.WriteString(",file=")
+            b.WriteString(v)
+            first = false
+        }
+        for k, v := range args {
+            if k == "file" { continue }
+            if first {
+                b.WriteString(",")
+                first = false
+            } else {
+                b.WriteString(",")
+            }
+            b.WriteString(k)
+            b.WriteString("=")
+            b.WriteString(v)
+        }
+        b.WriteString("]")
+        return b.String()
+    })
 }
 
 var upgrader = websocket.Upgrader{
@@ -196,6 +262,34 @@ func rewriteIfUpload(msg []byte, cfg *Config) []byte {
         return msg
     }
     switch cmd.Action {
+    case "send_private_msg":
+        raw, _ := json.Marshal(cmd.Params)
+        var p map[string]interface{}
+        if json.Unmarshal(raw, &p) == nil {
+            if v, ok := p["message"].(string); ok {
+                nv := rewriteCQMediaInText(v, cfg)
+                if nv != v {
+                    newCmd := oneBotCommand{Action: "send_private_msg", Params: sendPrivateMsgParams{UserID: int64(p["user_id"].(float64)), Message: nv}, Echo: cmd.Echo}
+                    b, _ := json.Marshal(newCmd)
+                    return b
+                }
+            }
+        }
+        return msg
+    case "send_group_msg":
+        raw, _ := json.Marshal(cmd.Params)
+        var p map[string]interface{}
+        if json.Unmarshal(raw, &p) == nil {
+            if v, ok := p["message"].(string); ok {
+                nv := rewriteCQMediaInText(v, cfg)
+                if nv != v {
+                    newCmd := oneBotCommand{Action: "send_group_msg", Params: sendGroupMsgParams{GroupID: int64(p["group_id"].(float64)), Message: nv}, Echo: cmd.Echo}
+                    b, _ := json.Marshal(newCmd)
+                    return b
+                }
+            }
+        }
+        return msg
     case "upload_private_file":
         // params must be uploadPrivateFileParams
         raw, _ := json.Marshal(cmd.Params)

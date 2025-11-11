@@ -99,7 +99,15 @@ func main() {
                 absOut = a
             }
         }
-        publicURL := fmt.Sprintf("%s/files/%s", strings.TrimRight(cfg.PublicBaseURL, "/"), strings.TrimLeft(strings.ReplaceAll(outPath, cfg.StorageDir+"/", ""), "/"))
+        // Build URL path relative to storage_dir, with forward slashes
+        rel, err := filepath.Rel(cfg.StorageDir, outPath)
+        if err != nil {
+            // fallback to stripping prefix
+            rel = strings.TrimPrefix(outPath, cfg.StorageDir)
+        }
+        rel = filepath.ToSlash(rel)
+        rel = strings.TrimLeft(rel, "/")
+        publicURL := fmt.Sprintf("%s/files/%s", strings.TrimRight(cfg.PublicBaseURL, "/"), rel)
 
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(map[string]string{
