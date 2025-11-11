@@ -286,59 +286,71 @@ func rewriteIfUpload(msg []byte, cfg *Config) []byte {
 	if err := json.Unmarshal(msg, &cmd); err != nil {
 		return msg
 	}
-    switch cmd.Action {
-    case "send_msg":
-        raw, _ := json.Marshal(cmd.Params)
-        var p map[string]interface{}
-        if json.Unmarshal(raw, &p) == nil {
-            if v, ok := p["message"].(string); ok {
-                nv := rewriteCQMediaInText(v, cfg)
-                nv = rewritePictureTagInText(nv, cfg)
-                if nv != v {
-                    p["message"] = nv
-                    newCmd := oneBotCommand{Action: "send_msg", Params: p, Echo: cmd.Echo}
-                    b, _ := json.Marshal(newCmd)
-                    return b
-                }
-            } else if arr, ok := p["message"].([]interface{}); ok {
-                changed := false
-                for i := range arr {
-                    el, ok := arr[i].(map[string]interface{})
-                    if !ok { continue }
-                    t, _ := el["type"].(string)
-                    data, _ := el["data"].(map[string]interface{})
-                    if t == "image" || t == "record" {
-                        if u, _ := data["url"].(string); strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") { continue }
-                        src := ""
-                        if f, _ := data["file"].(string); f != "" { src = f }
-                        if src == "" { if pth, _ := data["path"].(string); pth != "" { src = pth } }
-                        if src == "" { continue }
-                        up, _ := uploadViaB(src, "", cfg)
-                        if up.URL != "" {
-                            data["url"] = up.URL
-                            data["file"] = up.URL
-                            delete(data, "path")
-                            changed = true
-                        }
-                    } else if t == "text" {
-                        if txt, _ := data["text"].(string); txt != "" {
-                            nv := rewritePictureTagInText(txt, cfg)
-                            if nv != txt {
-                                data["text"] = nv
-                                changed = true
-                            }
-                        }
-                    }
-                }
-                if changed {
-                    p["message"] = arr
-                    newCmd := oneBotCommand{Action: "send_msg", Params: p, Echo: cmd.Echo}
-                    b, _ := json.Marshal(newCmd)
-                    return b
-                }
-            }
-        }
-        return msg
+	switch cmd.Action {
+	case "send_msg":
+		raw, _ := json.Marshal(cmd.Params)
+		var p map[string]interface{}
+		if json.Unmarshal(raw, &p) == nil {
+			if v, ok := p["message"].(string); ok {
+				nv := rewriteCQMediaInText(v, cfg)
+				nv = rewritePictureTagInText(nv, cfg)
+				if nv != v {
+					p["message"] = nv
+					newCmd := oneBotCommand{Action: "send_msg", Params: p, Echo: cmd.Echo}
+					b, _ := json.Marshal(newCmd)
+					return b
+				}
+			} else if arr, ok := p["message"].([]interface{}); ok {
+				changed := false
+				for i := range arr {
+					el, ok := arr[i].(map[string]interface{})
+					if !ok {
+						continue
+					}
+					t, _ := el["type"].(string)
+					data, _ := el["data"].(map[string]interface{})
+					if t == "image" || t == "record" {
+						if u, _ := data["url"].(string); strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+							continue
+						}
+						src := ""
+						if f, _ := data["file"].(string); f != "" {
+							src = f
+						}
+						if src == "" {
+							if pth, _ := data["path"].(string); pth != "" {
+								src = pth
+							}
+						}
+						if src == "" {
+							continue
+						}
+						up, _ := uploadViaB(src, "", cfg)
+						if up.URL != "" {
+							data["url"] = up.URL
+							data["file"] = up.URL
+							delete(data, "path")
+							changed = true
+						}
+					} else if t == "text" {
+						if txt, _ := data["text"].(string); txt != "" {
+							nv := rewritePictureTagInText(txt, cfg)
+							if nv != txt {
+								data["text"] = nv
+								changed = true
+							}
+						}
+					}
+				}
+				if changed {
+					p["message"] = arr
+					newCmd := oneBotCommand{Action: "send_msg", Params: p, Echo: cmd.Echo}
+					b, _ := json.Marshal(newCmd)
+					return b
+				}
+			}
+		}
+		return msg
 	case "send_private_msg":
 		raw, _ := json.Marshal(cmd.Params)
 		var p map[string]interface{}

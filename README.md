@@ -1,17 +1,17 @@
 # Middleware for SealDice OneBot 文件跨机发送
 
-本目录下提供两个中间件应用，用于在 `sealdice-core` 与 OneBot 协议端（go-cqhttp）位于不同机器时，实现文件发送功能，而无需改动两端。
+用于在 `sealdice-core` 与 OneBot 协议端（go-cqhttp）位于不同机器时，实现文件发送功能，而无需改动两端。
 
 ## 组件说明
 
-- `middleware-a`：位于 `sealdice-core` 机器，充当 WebSocket 代理。
+- `middleware-a`：需位于 `sealdice-core` 机器，充当 WebSocket 代理。
   - 拦截 OneBot 动作 `upload_private_file` / `upload_group_file`。
   - 将本地文件上传至远端 `middleware-b` 并获取 URL 或本机绝对路径。
   - 对 `upload_*_file`：优先改写其 `file` 为 b 返回的本机绝对路径（go-cqhttp 端可直接读取）；若不可用则降级为 `send_*_msg` + `[CQ:file,file=<url>,name=<name>]`。
   - 对 `send_*_msg` 中的 `[CQ:image]`/`[CQ:record]`：检测 `file` 为本地路径或 `base64://` 时，上传到 b 并改写为网络 URL（`file=<http(s)://...>`），实现跨机发送。
   - 其余事件与动作透明转发。
 
-- `middleware-b`：位于协议端机器（与 go-cqhttp 同机），提供文件上传与静态文件访问。
+- `middleware-b`：需位于协议端机器（与 go-cqhttp 同机），提供文件上传与静态文件访问。
   - 接收 `multipart/form-data` 上传，存储到本地目录。
   - 返回可公开访问的 URL，供 go-cqhttp 取用。
 
@@ -41,6 +41,8 @@ go build   # 若依赖下载失败，请设置 GOPROXY="https://goproxy.cn,direc
 .\n+middleware-b.exe -config config.json
 ```
 
+亦可以配置好 `config.json` 文件后双击启动
+
 ### middleware-a（sealdice-core 侧）
 
 编辑 `middleware-a/config.json`：
@@ -59,6 +61,8 @@ go build   # 若依赖下载失败，请设置 GOPROXY="https://goproxy.cn,direc
 .
 middleware-a.exe -config config.json
 ```
+
+亦可以配置好 `config.json` 文件后双击启动
 
 在 `sealdice-core` 的 OneBot 端点配置中，将 WS 地址改为 `ws://<a-host>:8081/ws`。
 
