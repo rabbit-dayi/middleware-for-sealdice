@@ -39,7 +39,7 @@ go build   # 若依赖下载失败，请设置 golang 的国内镜像站，这�
 
 ## 配置与启动
 
-### middleware-b（协议端侧）
+### middleware-b（与协议端同机）
 
 编辑 `middleware-b/config.json`：
 
@@ -55,13 +55,13 @@ go build   # 若依赖下载失败，请设置 golang 的国内镜像站，这�
 
 亦可以配置好 `config.json` 文件后双击启动
 
-### middleware-a（sealdice-core 侧）
+### middleware-a（与 sealdice-core 程序同机）
 
 编辑 `middleware-a/config.json`：
 
 - `listen_http`: 监听地址，例如 `":8081"`
 - `listen_ws_path`: WebSocket 路径，通常 `"/ws"`
-- `upstream_ws_url`: Onebot V11 实现端 WS 地址，例如 `"ws://< Onebot 协议实现端所在机器的 ip >:6700/ws"`
+- `upstream_ws_url`: Onebot V11 实现端 WS 地址，例如 `"ws://< Onebot 协议实现端所在机器的 ip >:6700"`
 - `upstream_access_token`: 若实现端设置了 token，填入此处
 - `upstream_use_query_token`: `true` 时以 `?access_token=...` 形式传递（符合 OneBot v11 正向 WS 规范），`false` 时使用请求头 `Authorization: Bearer ...`
 - `server_access_token`: 可选，若设置，则 sealdice-core 连接到本代理时需带上 `Authorization: Bearer <token>`
