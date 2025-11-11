@@ -60,7 +60,6 @@ go build   # 若依赖下载失败，请设置 GOPROXY="https://goproxy.cn,direc
 启动：
 
 ```powershell
-.
 .\middleware-a.exe -config config.json
 ```
 
