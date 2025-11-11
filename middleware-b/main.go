@@ -93,12 +93,19 @@ func main() {
             return
         }
 
+        absOut := outPath
+        if !filepath.IsAbs(absOut) {
+            if a, err := filepath.Abs(absOut); err == nil {
+                absOut = a
+            }
+        }
         publicURL := fmt.Sprintf("%s/files/%s", strings.TrimRight(cfg.PublicBaseURL, "/"), strings.TrimLeft(strings.ReplaceAll(outPath, cfg.StorageDir+"/", ""), "/"))
 
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(map[string]string{
-            "url":  publicURL,
-            "name": name,
+            "url":        publicURL,
+            "name":       name,
+            "local_path": absOut,
         })
     })
 

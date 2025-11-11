@@ -2,6 +2,7 @@ package main
 
 import (
     "bytes"
+    "encoding/base64"
     "encoding/json"
     "flag"
     "fmt"
@@ -25,6 +26,8 @@ type Config struct {
     ListenWSPath       string `json:"listen_ws_path"`
     UpstreamWSURL      string `json:"upstream_ws_url"`
     UpstreamAccessToken string `json:"upstream_access_token"`
+    UpstreamUseQueryToken bool   `json:"upstream_use_query_token"`
+    ServerAccessToken   string `json:"server_access_token"`
     UploadEndpoint     string `json:"upload_endpoint"`
 }
 
@@ -93,6 +96,16 @@ func main() {
     }
 
     http.HandleFunc(cfg.ListenWSPath, func(w http.ResponseWriter, r *http.Request) {
+        // Optional server-side token validation per OneBot v11 forward WS
+        if cfg.ServerAccessToken != "" {
+            auth := r.Header.Get("Authorization")
+            expected := "Bearer " + cfg.ServerAccessToken
+            if auth != expected {
+                w.WriteHeader(http.StatusUnauthorized)
+                _, _ = w.Write([]byte("unauthorized"))
+                return
+            }
+        }
         // Accept WS from sealdice-core adapter
         clientConn, err := upgrader.Upgrade(w, r, nil)
         if err != nil {
@@ -102,10 +115,19 @@ func main() {
 
         // Connect to upstream go-cqhttp
         header := http.Header{}
-        if cfg.UpstreamAccessToken != "" {
+        if cfg.UpstreamAccessToken != "" && !cfg.UpstreamUseQueryToken {
             header.Set("Authorization", "Bearer "+cfg.UpstreamAccessToken)
         }
-        upstreamConn, _, err := websocket.DefaultDialer.Dial(cfg.UpstreamWSURL, header)
+        upstreamURL := cfg.UpstreamWSURL
+        if cfg.UpstreamAccessToken != "" && cfg.UpstreamUseQueryToken {
+            if u, err := url.Parse(upstreamURL); err == nil {
+                q := u.Query()
+                q.Set("access_token", cfg.UpstreamAccessToken)
+                u.RawQuery = q.Encode()
+                upstreamURL = u.String()
+            }
+        }
+        upstreamConn, _, err := websocket.DefaultDialer.Dial(upstreamURL, header)
         if err != nil {
             log.Printf("upstream dial error: %v", err)
             clientConn.Close()
@@ -181,37 +203,56 @@ func rewriteIfUpload(msg []byte, cfg *Config) []byte {
         if err := json.Unmarshal(raw, &p); err != nil {
             return msg
         }
-        urlStr, name := uploadViaB(p.File, p.Name, cfg)
-        if urlStr == "" {
-            return msg
+        up, name := uploadViaB(p.File, p.Name, cfg)
+        if up.LocalPath != "" {
+            // Keep original upload action, rewrite to remote local path
+            newCmd := oneBotCommand{
+                Action: "upload_private_file",
+                Params: uploadPrivateFileParams{UserID: p.UserID, File: up.LocalPath, Name: name},
+                Echo:   cmd.Echo,
+            }
+            b, _ := json.Marshal(newCmd)
+            return b
         }
-        // Construct send_private_msg with CQ:file
-        cq := fmt.Sprintf("[CQ:file,file=%s,name=%s]", escapeCommaMaybe(urlStr), name)
-        newCmd := oneBotCommand{
-            Action: "send_private_msg",
-            Params: sendPrivateMsgParams{UserID: p.UserID, Message: cq},
-            Echo:   cmd.Echo,
+        if up.URL != "" {
+            // Fallback: send as message with CQ:file URL
+            cq := fmt.Sprintf("[CQ:file,file=%s,name=%s]", escapeCommaMaybe(up.URL), name)
+            newCmd := oneBotCommand{
+                Action: "send_private_msg",
+                Params: sendPrivateMsgParams{UserID: p.UserID, Message: cq},
+                Echo:   cmd.Echo,
+            }
+            b, _ := json.Marshal(newCmd)
+            return b
         }
-        b, _ := json.Marshal(newCmd)
-        return b
+        return msg
     case "upload_group_file":
         raw, _ := json.Marshal(cmd.Params)
         var p uploadGroupFileParams
         if err := json.Unmarshal(raw, &p); err != nil {
             return msg
         }
-        urlStr, name := uploadViaB(p.File, p.Name, cfg)
-        if urlStr == "" {
-            return msg
+        up, name := uploadViaB(p.File, p.Name, cfg)
+        if up.LocalPath != "" {
+            newCmd := oneBotCommand{
+                Action: "upload_group_file",
+                Params: uploadGroupFileParams{GroupID: p.GroupID, File: up.LocalPath, Name: name},
+                Echo:   cmd.Echo,
+            }
+            b, _ := json.Marshal(newCmd)
+            return b
         }
-        cq := fmt.Sprintf("[CQ:file,file=%s,name=%s]", escapeCommaMaybe(urlStr), name)
-        newCmd := oneBotCommand{
-            Action: "send_group_msg",
-            Params: sendGroupMsgParams{GroupID: p.GroupID, Message: cq},
-            Echo:   cmd.Echo,
+        if up.URL != "" {
+            cq := fmt.Sprintf("[CQ:file,file=%s,name=%s]", escapeCommaMaybe(up.URL), name)
+            newCmd := oneBotCommand{
+                Action: "send_group_msg",
+                Params: sendGroupMsgParams{GroupID: p.GroupID, Message: cq},
+                Echo:   cmd.Echo,
+            }
+            b, _ := json.Marshal(newCmd)
+            return b
         }
-        b, _ := json.Marshal(newCmd)
-        return b
+        return msg
     default:
         return msg
     }
@@ -219,8 +260,85 @@ func rewriteIfUpload(msg []byte, cfg *Config) []byte {
 
 func escapeCommaMaybe(text string) string { return strings.ReplaceAll(text, ",", "%2C") }
 
-func uploadViaB(fileField string, name string, cfg *Config) (string, string) {
+type uploadResult struct {
+    URL       string
+    LocalPath string
+}
+
+func uploadViaB(fileField string, name string, cfg *Config) (uploadResult, string) {
     path := fileField
+    // If already an HTTP(S) URL, return directly
+    if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+        if name == "" {
+            if u, err := url.Parse(path); err == nil {
+                base := filepath.Base(u.Path)
+                if base != "" && base != "/" {
+                    name = base
+                }
+            }
+        }
+        return uploadResult{URL: path}, name
+    }
+    // Handle base64:// content
+    if strings.HasPrefix(path, "base64://") {
+        enc := strings.TrimPrefix(path, "base64://")
+        // support optional data URI header like data:...;base64,xxxx
+        if idx := strings.IndexByte(enc, ','); idx != -1 {
+            enc = enc[idx+1:]
+        }
+        data, err := base64.StdEncoding.DecodeString(enc)
+        if err != nil {
+            log.Printf("decode base64 failed: %v", err)
+            return uploadResult{}, ""
+        }
+        if name == "" {
+            name = "file.bin"
+        }
+        var body bytes.Buffer
+        writer := multipart.NewWriter(&body)
+        part, err := writer.CreateFormFile("file", name)
+        if err != nil {
+            log.Printf("create form file failed: %v", err)
+            return uploadResult{}, ""
+        }
+        if _, err := part.Write(data); err != nil {
+            log.Printf("write base64 data failed: %v", err)
+            return uploadResult{}, ""
+        }
+        _ = writer.WriteField("name", name)
+        writer.Close()
+
+        req, err := http.NewRequest("POST", cfg.UploadEndpoint, &body)
+        if err != nil {
+            log.Printf("new request failed: %v", err)
+            return uploadResult{}, ""
+        }
+        req.Header.Set("Content-Type", writer.FormDataContentType())
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            log.Printf("upload HTTP error: %v", err)
+            return uploadResult{}, ""
+        }
+        defer resp.Body.Close()
+        b, _ := io.ReadAll(resp.Body)
+        if resp.StatusCode/100 != 2 {
+            log.Printf("upload failed status=%d body=%s", resp.StatusCode, string(b))
+            return uploadResult{}, ""
+        }
+        var ret struct {
+            URL       string `json:"url"`
+            Name      string `json:"name"`
+            LocalPath string `json:"local_path"`
+        }
+        if err := json.Unmarshal(b, &ret); err != nil {
+            log.Printf("parse upload response failed: %v", err)
+            return uploadResult{}, ""
+        }
+        if ret.Name != "" {
+            name = ret.Name
+        }
+        return uploadResult{URL: ret.URL, LocalPath: ret.LocalPath}, name
+    }
     // Handle file:// URI
     if strings.HasPrefix(path, "file://") {
         u, err := url.Parse(path)
@@ -246,7 +364,7 @@ func uploadViaB(fileField string, name string, cfg *Config) (string, string) {
     f, err := os.Open(path)
     if err != nil {
         log.Printf("open file for upload failed: %v", err)
-        return "", ""
+        return uploadResult{}, ""
     }
     defer f.Close()
     if name == "" {
@@ -259,11 +377,11 @@ func uploadViaB(fileField string, name string, cfg *Config) (string, string) {
     part, err := writer.CreateFormFile("file", name)
     if err != nil {
         log.Printf("create form file failed: %v", err)
-        return "", ""
+        return uploadResult{}, ""
     }
     if _, err := io.Copy(part, f); err != nil {
         log.Printf("copy file failed: %v", err)
-        return "", ""
+        return uploadResult{}, ""
     }
     _ = writer.WriteField("name", name)
     writer.Close()
@@ -271,30 +389,31 @@ func uploadViaB(fileField string, name string, cfg *Config) (string, string) {
     req, err := http.NewRequest("POST", cfg.UploadEndpoint, &body)
     if err != nil {
         log.Printf("new request failed: %v", err)
-        return "", ""
+        return uploadResult{}, ""
     }
     req.Header.Set("Content-Type", writer.FormDataContentType())
     resp, err := http.DefaultClient.Do(req)
     if err != nil {
         log.Printf("upload HTTP error: %v", err)
-        return "", ""
+        return uploadResult{}, ""
     }
     defer resp.Body.Close()
     b, _ := io.ReadAll(resp.Body)
     if resp.StatusCode/100 != 2 {
         log.Printf("upload failed status=%d body=%s", resp.StatusCode, string(b))
-        return "", ""
+        return uploadResult{}, ""
     }
     var ret struct {
-        URL  string `json:"url"`
-        Name string `json:"name"`
+        URL       string `json:"url"`
+        Name      string `json:"name"`
+        LocalPath string `json:"local_path"`
     }
     if err := json.Unmarshal(b, &ret); err != nil {
         log.Printf("parse upload response failed: %v", err)
-        return "", ""
+        return uploadResult{}, ""
     }
     if ret.Name != "" {
         name = ret.Name
     }
-    return ret.URL, name
+    return uploadResult{URL: ret.URL, LocalPath: ret.LocalPath}, name
 }

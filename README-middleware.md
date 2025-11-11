@@ -1,9 +1,76 @@
-# 一个关于 sealdice-core 与 Onebot 协议端跨机部署的中间件尝试，暂时不可用
+# Middleware for SealDice OneBot 文件跨机发送
 
-## 原始实现路径想法感谢： @SzzRain（<https://github.com/Szzrain）>
+本目录下提供两个中间件应用，用于在 `sealdice-core` 与 OneBot 协议端（go-cqhttp）位于不同机器时，实现文件发送功能，而无需改动两端。
 
-## 设想
+## 组件说明
 
-### middleware-a: 充当 WebSocket 代理，拦截 OneBot 协议端的 `upload_private_file/upload_group_file` ，将本地文件上传至 `middleware-b` ，并把动作改写为 `send_*_msg 携带 [CQ:file] 的远端 URL`
+- `middleware-a`：位于 `sealdice-core` 机器，充当 WebSocket 代理。
+  - 拦截 OneBot 动作 `upload_private_file` / `upload_group_file`。
+  - 将本地文件上传至远端 `middleware-b` 并获取 URL。
+  - 改写为 `send_*_msg`，消息体为 `[CQ:file,file=<url>,name=<name>]`。
+  - 其余事件与动作透明转发。
 
-### middleware-b: 充当文件存储服务，接收 `middleware-a` 上传的文件，返回可供协议端进行拉取的文件 URL
+- `middleware-b`：位于协议端机器（与 go-cqhttp 同机），提供文件上传与静态文件访问。
+  - 接收 `multipart/form-data` 上传，存储到本地目录。
+  - 返回可公开访问的 URL，供 go-cqhttp 取用。
+
+## 构建
+
+```powershell
+cd middleware-b
+go build
+
+cd ../middleware-a
+go build   # 若依赖下载失败，请设置 GOPROXY="https://goproxy.cn,direct"
+```
+
+## 配置与启动
+
+### middleware-b（协议端侧）
+
+编辑 `middleware-b/config.json`：
+
+- `listen_http`: 监听地址，例如 `":8082"`
+- `storage_dir`: 文件存储目录，例如 `"uploads"`
+- `public_base_url`: 该服务的外部可访问基地址，例如 `"http://<b-host>:8082"`
+
+启动：
+
+```powershell
+.\n+middleware-b.exe -config config.json
+```
+
+### middleware-a（sealdice-core 侧）
+
+编辑 `middleware-a/config.json`：
+
+- `listen_http`: 监听地址，例如 `":8081"`
+- `listen_ws_path`: WebSocket 路径，通常 `"/ws"`
+- `upstream_ws_url`: go-cqhttp WS 地址，例如 `"ws://<go-cqhttp-host>:6700/ws"`
+- `upstream_access_token`: 若 go-cqhttp 设置了 token，填入此处
+- `upstream_use_query_token`: `true` 时以 `?access_token=...` 形式传递（符合 OneBot v11 正向 WS 规范），`false` 时使用请求头 `Authorization: Bearer ...`
+- `server_access_token`: 可选，若设置，则 sealdice-core 连接到本代理时需带上 `Authorization: Bearer <token>`
+- `upload_endpoint`: 指向 `middleware-b` 的上传接口，例如 `"http://<b-host>:8082/upload"`
+
+启动：
+
+```powershell
+.
+middleware-a.exe -config config.json
+```
+
+在 `sealdice-core` 的 OneBot 端点配置中，将 WS 地址改为 `ws://<a-host>:8081/ws`。
+
+## 行为与兼容性（OneBot v11）
+
+- 代理会透明转发所有事件与动作，仅在检测到 `upload_private_file` / `upload_group_file` 时介入。
+- 对于 `file` 字段：
+  - `http(s)://...`：直接改写为 `[CQ:file,file=<url>]`，不经上传。
+  - `base64://...`：解码后上传至 `middleware-b`，返回 URL 并改写为 `[CQ:file,file=<url>,name=<name>]`。
+  - `file://` 或本地路径：读取本地文件上传至 `middleware-b`，返回 URL 并改写为 `[CQ:file,file=<url>,name=<name>]`。
+- 上游鉴权支持 `Authorization: Bearer` 或 `?access_token=` 两种形式。
+
+## 备注
+
+- 可按需在 `middleware-b` 增强鉴权、限流、类型校验等安全措施。
+- 该中间件不修改 `sealdice-core` 与 go-cqhttp，仅在中间层完成跨机文件可达性。
