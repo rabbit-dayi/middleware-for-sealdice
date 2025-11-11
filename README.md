@@ -38,7 +38,7 @@ go build   # 若依赖下载失败，请设置 GOPROXY="https://goproxy.cn,direc
 启动：
 
 ```powershell
-.\n+middleware-b.exe -config config.json
+.\middleware-b.exe -config config.json
 ```
 
 亦可以配置好 `config.json` 文件后双击启动
@@ -49,8 +49,8 @@ go build   # 若依赖下载失败，请设置 GOPROXY="https://goproxy.cn,direc
 
 - `listen_http`: 监听地址，例如 `":8081"`
 - `listen_ws_path`: WebSocket 路径，通常 `"/ws"`
-- `upstream_ws_url`: go-cqhttp WS 地址，例如 `"ws://<go-cqhttp-host>:6700/ws"`
-- `upstream_access_token`: 若 go-cqhttp 设置了 token，填入此处
+- `upstream_ws_url`: Onebot V11 实现端 WS 地址，例如 `"ws://<go-cqhttp-host>:6700/ws"`
+- `upstream_access_token`: 若实现端设置了 token，填入此处
 - `upstream_use_query_token`: `true` 时以 `?access_token=...` 形式传递（符合 OneBot v11 正向 WS 规范），`false` 时使用请求头 `Authorization: Bearer ...`
 - `server_access_token`: 可选，若设置，则 sealdice-core 连接到本代理时需带上 `Authorization: Bearer <token>`
 - `upload_endpoint`: 指向 `middleware-b` 的上传接口，例如 `"http://<b-host>:8082/upload"`
@@ -59,12 +59,18 @@ go build   # 若依赖下载失败，请设置 GOPROXY="https://goproxy.cn,direc
 
 ```powershell
 .
-middleware-a.exe -config config.json
+.\middleware-a.exe -config config.json
 ```
 
 亦可以配置好 `config.json` 文件后双击启动
 
-在 `sealdice-core` 的 OneBot 端点配置中，将 WS 地址改为 `ws://<a-host>:8081/ws`。
+在 `sealdice-core` 的 账号设置界面中，选择 `Onebot V11 正向WS`
+
+在WS连接地址处输入 
+
+`ws://<a-host>:8081/ws`
+
+如出现 `已连接` 且的确未显示异常，则证明连接成功
 
 ## 行为与兼容性（OneBot v11）
 
@@ -75,7 +81,3 @@ middleware-a.exe -config config.json
   - `file://` 或本地路径：读取本地文件上传至 `middleware-b`，返回 URL 并改写为 `[CQ:file,file=<url>,name=<name>]`。
 - 上游鉴权支持 `Authorization: Bearer` 或 `?access_token=` 两种形式。
 
-## 备注
-
-- 可按需在 `middleware-b` 增强鉴权、限流、类型校验等安全措施。
-- 该中间件不修改 `sealdice-core` 与 go-cqhttp，仅在中间层完成跨机文件可达性。
