@@ -17,7 +17,7 @@
 
 
 ## 获取二进制文件
-可以通过 [action构建](https://github.com/kenichiLyon/middleware-for-sealdice/actions) 获取，注意，**必须下载 middleware-a 和 middleware-b 并且部署才能正常工作**
+可以通过 [ action 构建 ](https://github.com/kenichiLyon/middleware-for-sealdice/actions) 获取，注意，**必须下载 middleware-a 和 middleware-b 并且部署才能正常工作**
 
 
 ## 构建
@@ -40,7 +40,7 @@ go build   # 若依赖下载失败，请设置 golang 的国内镜像站，这�
 
 - `listen_http`: 监听地址，例如 `":8082"`
 - `storage_dir`: 文件存储目录，例如 `"uploads"`
-- `public_base_url`: 该服务的外部可访问基地址，例如 `"http://<b-host>:8082"`
+- `public_base_url`: 该服务的外部可访问基地址，例如 `"http://< b 组件所在机器的 ip >:8082"`
 
 启动：
 
@@ -56,11 +56,11 @@ go build   # 若依赖下载失败，请设置 golang 的国内镜像站，这�
 
 - `listen_http`: 监听地址，例如 `":8081"`
 - `listen_ws_path`: WebSocket 路径，通常 `"/ws"`
-- `upstream_ws_url`: Onebot V11 实现端 WS 地址，例如 `"ws://<go-cqhttp-host>:6700/ws"`
+- `upstream_ws_url`: Onebot V11 实现端 WS 地址，例如 `"ws://< Onebot 协议实现端所在机器的 ip >:6700/ws"`
 - `upstream_access_token`: 若实现端设置了 token，填入此处
 - `upstream_use_query_token`: `true` 时以 `?access_token=...` 形式传递（符合 OneBot v11 正向 WS 规范），`false` 时使用请求头 `Authorization: Bearer ...`
 - `server_access_token`: 可选，若设置，则 sealdice-core 连接到本代理时需带上 `Authorization: Bearer <token>`
-- `upload_endpoint`: 指向 `middleware-b` 的上传接口，例如 `"http://<b-host>:8082/upload"`
+- `upload_endpoint`: 指向 `middleware-b` 的上传接口，例如 `"http://< b 组件所在机器的 ip >:8082/upload"`
 
 启动：
 
