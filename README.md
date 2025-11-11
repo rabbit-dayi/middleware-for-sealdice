@@ -17,9 +17,11 @@
   - 其余事件与动作透明转发。
 
 - `middleware-b`：需位于协议端机器（与协议实现端程序同机），负责提供文件上传与静态文件访问，需要 `middleware-a` 所在的机器可访问，否则可能无法正常工作。
+- `middleware-b` 无需与协议端和 sealdice-core 程序对接，它只负责文件的持久化与读取。
   - 接收 `multipart/form-data` 上传，存储到本地目录。
-  - 返回可公开访问的 URL，供 go-cqhttp 取用。
+  - 返回可公开访问的 URL，供协议实现端取用。
 
+简而言之，本项目本质上是将 *sealdice-core 程序的可读取目录* 内的图片/视频等外置资源转换到了 *协议实现端的可读取目录*，规避了跨机部署时协议实现端无法访问到海豹资源 URI 导致消息发送失败的问题
 
 ## 获取二进制文件
 可以通过 [ action 构建 ](https://github.com/kenichiLyon/middleware-for-sealdice/actions) 获取，注意，**必须下载 middleware-a 和 middleware-b 并且部署才能正常工作**
