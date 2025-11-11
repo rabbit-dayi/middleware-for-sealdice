@@ -1,6 +1,6 @@
 # Middleware for SealDice OneBot 文件跨机发送
 
-用于在 `sealdice-core` 与 OneBot 协议端（go-cqhttp）位于不同机器时，实现文件发送功能，而无需改动两端。
+用于在 `sealdice-core` 与 OneBot 协议实现端位于不同机器时，实现文件发送功能，而无需改动两端。
 
 ## 组件说明
 
