@@ -137,6 +137,23 @@ func rewriteCQMediaInText(s string, cfg *Config) string {
 	})
 }
 
+// rewritePictureTagInText converts custom "[图:<path>]" to CQ:image with remote URL
+func rewritePictureTagInText(s string, cfg *Config) string {
+	re := regexp.MustCompile(`\[图:([^\]]+)]`)
+	return re.ReplaceAllStringFunc(s, func(seg string) string {
+		m := re.FindStringSubmatch(seg)
+		if len(m) < 2 {
+			return seg
+		}
+		src := strings.TrimSpace(m[1])
+		up, _ := uploadViaB(src, "", cfg)
+		if up.URL == "" {
+			return seg
+		}
+		return "[CQ:image,file=" + escapeCommaMaybe(up.URL) + "]"
+	})
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  64 * 1024,
 	WriteBufferSize: 64 * 1024,
@@ -269,15 +286,121 @@ func rewriteIfUpload(msg []byte, cfg *Config) []byte {
 	if err := json.Unmarshal(msg, &cmd); err != nil {
 		return msg
 	}
-	switch cmd.Action {
+    switch cmd.Action {
+    case "send_msg":
+        raw, _ := json.Marshal(cmd.Params)
+        var p map[string]interface{}
+        if json.Unmarshal(raw, &p) == nil {
+            if v, ok := p["message"].(string); ok {
+                nv := rewriteCQMediaInText(v, cfg)
+                nv = rewritePictureTagInText(nv, cfg)
+                if nv != v {
+                    p["message"] = nv
+                    newCmd := oneBotCommand{Action: "send_msg", Params: p, Echo: cmd.Echo}
+                    b, _ := json.Marshal(newCmd)
+                    return b
+                }
+            } else if arr, ok := p["message"].([]interface{}); ok {
+                changed := false
+                for i := range arr {
+                    el, ok := arr[i].(map[string]interface{})
+                    if !ok { continue }
+                    t, _ := el["type"].(string)
+                    data, _ := el["data"].(map[string]interface{})
+                    if t == "image" || t == "record" {
+                        if u, _ := data["url"].(string); strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") { continue }
+                        src := ""
+                        if f, _ := data["file"].(string); f != "" { src = f }
+                        if src == "" { if pth, _ := data["path"].(string); pth != "" { src = pth } }
+                        if src == "" { continue }
+                        up, _ := uploadViaB(src, "", cfg)
+                        if up.URL != "" {
+                            data["url"] = up.URL
+                            data["file"] = up.URL
+                            delete(data, "path")
+                            changed = true
+                        }
+                    } else if t == "text" {
+                        if txt, _ := data["text"].(string); txt != "" {
+                            nv := rewritePictureTagInText(txt, cfg)
+                            if nv != txt {
+                                data["text"] = nv
+                                changed = true
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    p["message"] = arr
+                    newCmd := oneBotCommand{Action: "send_msg", Params: p, Echo: cmd.Echo}
+                    b, _ := json.Marshal(newCmd)
+                    return b
+                }
+            }
+        }
+        return msg
 	case "send_private_msg":
 		raw, _ := json.Marshal(cmd.Params)
 		var p map[string]interface{}
 		if json.Unmarshal(raw, &p) == nil {
 			if v, ok := p["message"].(string); ok {
 				nv := rewriteCQMediaInText(v, cfg)
+				nv = rewritePictureTagInText(nv, cfg)
 				if nv != v {
-					newCmd := oneBotCommand{Action: "send_private_msg", Params: sendPrivateMsgParams{UserID: int64(p["user_id"].(float64)), Message: nv}, Echo: cmd.Echo}
+					p["message"] = nv
+					newCmd := oneBotCommand{Action: "send_private_msg", Params: p, Echo: cmd.Echo}
+					b, _ := json.Marshal(newCmd)
+					return b
+				}
+			} else if arr, ok := p["message"].([]interface{}); ok {
+				changed := false
+				for i := range arr {
+					el, ok := arr[i].(map[string]interface{})
+					if !ok {
+						continue
+					}
+					t, _ := el["type"].(string)
+					data, _ := el["data"].(map[string]interface{})
+					if t == "image" || t == "record" {
+						// prefer existing http(s) url
+						if u, _ := data["url"].(string); strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+							continue
+						}
+						// candidate source
+						src := ""
+						if f, _ := data["file"].(string); f != "" {
+							src = f
+						}
+						if src == "" {
+							if pth, _ := data["path"].(string); pth != "" {
+								src = pth
+							}
+						}
+						if src == "" {
+							continue
+						}
+						up, _ := uploadViaB(src, "", cfg)
+						if up.URL != "" {
+							// set both url and file to remote URL to support impls that prefer 'file'
+							data["url"] = up.URL
+							data["file"] = up.URL
+							// drop local-only path if present
+							delete(data, "path")
+							changed = true
+						}
+					} else if t == "text" {
+						if txt, _ := data["text"].(string); txt != "" {
+							nv := rewritePictureTagInText(txt, cfg)
+							if nv != txt {
+								data["text"] = nv
+								changed = true
+							}
+						}
+					}
+				}
+				if changed {
+					p["message"] = arr
+					newCmd := oneBotCommand{Action: "send_private_msg", Params: p, Echo: cmd.Echo}
 					b, _ := json.Marshal(newCmd)
 					return b
 				}
@@ -290,8 +413,58 @@ func rewriteIfUpload(msg []byte, cfg *Config) []byte {
 		if json.Unmarshal(raw, &p) == nil {
 			if v, ok := p["message"].(string); ok {
 				nv := rewriteCQMediaInText(v, cfg)
+				nv = rewritePictureTagInText(nv, cfg)
 				if nv != v {
-					newCmd := oneBotCommand{Action: "send_group_msg", Params: sendGroupMsgParams{GroupID: int64(p["group_id"].(float64)), Message: nv}, Echo: cmd.Echo}
+					p["message"] = nv
+					newCmd := oneBotCommand{Action: "send_group_msg", Params: p, Echo: cmd.Echo}
+					b, _ := json.Marshal(newCmd)
+					return b
+				}
+			} else if arr, ok := p["message"].([]interface{}); ok {
+				changed := false
+				for i := range arr {
+					el, ok := arr[i].(map[string]interface{})
+					if !ok {
+						continue
+					}
+					t, _ := el["type"].(string)
+					data, _ := el["data"].(map[string]interface{})
+					if t == "image" || t == "record" {
+						if u, _ := data["url"].(string); strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+							continue
+						}
+						src := ""
+						if f, _ := data["file"].(string); f != "" {
+							src = f
+						}
+						if src == "" {
+							if pth, _ := data["path"].(string); pth != "" {
+								src = pth
+							}
+						}
+						if src == "" {
+							continue
+						}
+						up, _ := uploadViaB(src, "", cfg)
+						if up.URL != "" {
+							data["url"] = up.URL
+							data["file"] = up.URL
+							delete(data, "path")
+							changed = true
+						}
+					} else if t == "text" {
+						if txt, _ := data["text"].(string); txt != "" {
+							nv := rewritePictureTagInText(txt, cfg)
+							if nv != txt {
+								data["text"] = nv
+								changed = true
+							}
+						}
+					}
+				}
+				if changed {
+					p["message"] = arr
+					newCmd := oneBotCommand{Action: "send_group_msg", Params: p, Echo: cmd.Echo}
 					b, _ := json.Marshal(newCmd)
 					return b
 				}
