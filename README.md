@@ -21,7 +21,7 @@
   - 接收 `multipart/form-data` 上传，存储到本地目录。
   - 返回可公开访问的 URL，供协议实现端取用。
 
-简而言之，本项目本质上是将 *sealdice-core 程序的可读取目录* 内的图片/视频等外置资源转换到了 *协议实现端的可读取目录*，规避了跨机部署时协议实现端无法访问到海豹资源 URI 导致消息发送失败的问题
+简而言之，本项目本质上是将 ** sealdice-core 程序的可读取目录** 内的图片/视频等外置资源转换到了 **协议实现端的可读取目录**，规避了跨机部署时协议实现端无法访问到海豹资源 URI 导致消息发送失败的问题
 
 ## 获取二进制文件
 可以通过 [ action 构建 ](https://github.com/kenichiLyon/middleware-for-sealdice/actions) 获取，注意，**必须下载 middleware-a 和 middleware-b 并且部署才能正常工作**
