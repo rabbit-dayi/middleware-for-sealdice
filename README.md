@@ -15,6 +15,11 @@
   - 接收 `multipart/form-data` 上传，存储到本地目录。
   - 返回可公开访问的 URL，供 go-cqhttp 取用。
 
+
+## 获取二进制文件
+可以通过 [action构建](https://github.com/kenichiLyon/middleware-for-sealdice/actions) 获取，注意，**必须下载middleware-a和middleware-b一起部署才能正常工作**
+
+
 ## 构建
 
 本项目使用 Golang 1.25.3 进行编写，建议以该版本进行代码编写与编译。
