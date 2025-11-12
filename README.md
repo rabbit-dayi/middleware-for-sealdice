@@ -89,7 +89,8 @@ windows用户 亦可以配置好 `config.json` 文件后双击启动
 
 如出现 `已连接` 且的确未显示异常，则证明连接成功
 
-### middleware-c
+### `c`方案
+#### middleware-c
 
 该方案可直接`docker-compose`启动`sealdice`，无需双端部署组件，并使用base64处理绝对路径的文件。也可以自行编译部署。
 

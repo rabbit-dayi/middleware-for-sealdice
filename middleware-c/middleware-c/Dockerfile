@@ -29,7 +29,7 @@ RUN apk add --no-cache ca-certificates && update-ca-certificates
 COPY --from=builder /middleware-c /app/middleware-c
 
 # Copy default config (can be overridden by mounting/ENV)
-COPY config.json /app/config.json
+COPY config.json.example /app/config.json
 
 # Listen port (match listen_http in config.json)
 EXPOSE 8081
